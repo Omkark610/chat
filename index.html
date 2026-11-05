@@ -84,9 +84,9 @@
                     <p class="text-xs text-slate-400 mt-1">Direct Peer-to-Peer • Unreadable by PeerJS or servers</p>
                 </div>
 
-                <!-- User Stranger ID Box -->
+                <!-- User Room ID Box -->
                 <div class="p-4 rounded-2xl bg-slate-900/80 border border-slate-800 text-left space-y-2">
-                    <span class="text-xs text-slate-400 font-medium">Your Stranger ID:</span>
+                    <span class="text-xs text-slate-400 font-medium">Your Room ID:</span>
                     <div class="flex items-center justify-between gap-2">
                         <code id="my-peer-id-display" class="font-mono text-base font-bold text-yellow-400 truncate">Generating...</code>
                         <button onclick="copyMyId()" class="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-200 transition flex items-center gap-1">
@@ -97,13 +97,15 @@
 
                 <div class="relative flex items-center py-1">
                     <div class="flex-grow border-t border-slate-800"></div>
-                    <span class="flex-shrink mx-3 text-xs text-slate-500 uppercase tracking-wider font-semibold">Join a Stranger</span>
+                    <span class="flex-shrink mx-3 text-xs text-slate-500 uppercase tracking-wider font-semibold">Join a Room</span>
                     <div class="flex-grow border-t border-slate-800"></div>
                 </div>
 
                 <!-- Connect Input Form -->
                 <div class="space-y-3">
-                    <input type="text" id="target-peer-id" placeholder="Enter Stranger ID (e.g. stranger-849204)" 
+                    <input type="text" id="target-peer-id" inputmode="numeric" pattern="[0-9]*" maxlength="6" 
+                        oninput="this.value = this.value.replace(/[^0-9]/g, '')"
+                        placeholder="Enter 6-digit Room ID (e.g. 849204)" 
                         class="w-full px-4 py-3 rounded-2xl bg-slate-900 border border-slate-800 text-slate-100 placeholder-slate-500 text-sm focus:outline-none focus:border-yellow-500/50 transition">
                     
                     <button onclick="connectToPeer()" id="connect-btn" class="w-full py-3.5 rounded-2xl snap-gradient font-bold text-slate-950 text-sm shadow-lg shadow-yellow-500/10 hover:opacity-95 transition flex items-center justify-center gap-2">
@@ -195,9 +197,8 @@
         };
 
         function generateSimpleId() {
-            // Generate a simple 6-digit random number
-            const num = Math.floor(100000 + Math.random() * 900000);
-            return `stranger-${num}`;
+            // Generate a simple 6-digit random number string
+            return Math.floor(100000 + Math.random() * 900000).toString();
         }
 
         function initPeerJS() {
@@ -468,23 +469,36 @@
                     try {
                         const decryptedStr = await decryptPayload(data.payload);
                         const snap = JSON.parse(decryptedStr);
+
+                        // Send back DELIVERED receipt to sender
+                        state.conn.send({ type: 'STATUS_UPDATE', snapId: snap.id, status: 'delivered' });
+
                         renderIncomingSnap(snap);
                     } catch (err) {
                         console.error("Decryption Error:", err);
                         showToast("Failed to decrypt incoming message", "error");
                     }
                 }
-            });
 
-            connection.on('close', () => {
-                showToast("Stranger disconnected", "error");
-                leaveRoom();
+                if (data.type === 'STATUS_UPDATE') {
+                    updateSnapStatusUI(data.snapId, data.status);
+                }
             });
+        function connectToPeer() {
+            const targetId = document.getElementById('target-peer-id').value.trim();
+            if (!targetId) {
+                showToast("Please enter a Room ID", "error");
+                return;
+            }
+            if (targetId === state.myId) {
+                showToast("You cannot connect to your own Room ID!", "error");
+                return;
+            }
 
-            connection.on('error', (err) => {
-                console.error("DataConnection Error:", err);
-                showToast("Connection error occurred", "error");
-            });
+            showToast("Connecting to Room " + targetId + "...", "info");
+            const connection = state.peer.connect(targetId, { reliable: true });
+            state.isHost = true;
+            setupConnectionHandlers(connection);
         }
 
         function leaveRoom() {
@@ -588,7 +602,9 @@
             wrapper.innerHTML = `
                 ${contentHtml}
                 <div class="flex items-center gap-1.5 text-[10px] text-slate-400 px-1">
-                    <span>Sent</span> • 
+                    <span id="status-${snap.id}" class="flex items-center gap-0.5 text-slate-400 font-medium">
+                        <i data-lucide="check" class="w-3 h-3 text-slate-400"></i> Sent
+                    </span> • 
                     <span id="timer-${snap.id}" class="text-yellow-400 font-mono">60s</span>
                     <i data-lucide="clock" class="w-3 h-3 text-yellow-400"></i>
                 </div>
@@ -598,6 +614,92 @@
             lucide.createIcons();
             scrollToBottom();
             startSelfDestructTimer(snap.id);
+        }
+
+        function renderIncomingSnap(snap) {
+            const container = document.getElementById('messages-container');
+            const wrapper = document.createElement('div');
+            wrapper.className = "flex flex-col items-start space-y-1 mb-4";
+            wrapper.id = snap.id;
+
+            let contentHtml = '';
+            if (snap.type === 'text') {
+                // Text shows immediately and automatically sends back READ receipt
+                contentHtml = `
+                    <div class="max-w-xs sm:max-w-md p-3.5 rounded-2xl rounded-tl-xs bg-slate-800 text-slate-100 text-sm font-medium border border-slate-700/60 shadow-md">
+                        <p class="break-words">${escapeHtml(snap.content)}</p>
+                    </div>
+                `;
+                // Notify sender that message is read
+                if (state.conn && state.conn.open) {
+                    state.conn.send({ type: 'STATUS_UPDATE', snapId: snap.id, status: 'read' });
+                }
+            } else {
+                // Image snap has tap to reveal cover
+                contentHtml = `
+                    <div id="cover-${snap.id}" onclick="revealSnap('${snap.id}')" class="cursor-pointer max-w-xs sm:max-w-sm p-4 rounded-2xl rounded-tl-xs snap-gradient text-slate-950 font-bold text-sm shadow-md flex items-center gap-3 hover:opacity-95 transition select-none">
+                        <div class="w-8 h-8 rounded-full bg-slate-950/10 flex items-center justify-center">
+                            <i data-lucide="eye" class="w-4 h-4 text-slate-950"></i>
+                        </div>
+                        <div>
+                            <p class="font-bold">Tap to Reveal Photo</p>
+                            <p class="text-[10px] opacity-80">Deletes 60s after opening</p>
+                        </div>
+                    </div>
+                    
+                    <div id="content-${snap.id}" class="hidden max-w-xs sm:max-w-sm rounded-2xl rounded-tl-xs overflow-hidden border border-slate-700 bg-slate-900 shadow-md">
+                        <img src="${snap.content}" class="w-full h-auto object-cover max-h-60" alt="Snap Image">
+                    </div>
+                `;
+            }
+
+            wrapper.innerHTML = `
+                ${contentHtml}
+                <div class="flex items-center gap-1.5 text-[10px] text-slate-400 px-1">
+                    <span>Stranger</span> • 
+                    <span id="timer-${snap.id}" class="text-slate-400 font-mono">${snap.type === 'text' ? '60s' : 'Unopened'}</span>
+                    <i data-lucide="clock" class="w-3 h-3 text-slate-400"></i>
+                </div>
+            `;
+
+            container.appendChild(wrapper);
+            lucide.createIcons();
+            scrollToBottom();
+
+            // Auto-start 60s countdown for text snaps immediately
+            if (snap.type === 'text') {
+                startSelfDestructTimer(snap.id);
+            }
+        }
+
+        function revealSnap(snapId) {
+            const cover = document.getElementById(`cover-${snapId}`);
+            const content = document.getElementById(`content-${snapId}`);
+            if (cover && content) {
+                cover.classList.add('hidden');
+                content.classList.remove('hidden');
+
+                // Notify sender that image snap has been read/opened
+                if (state.conn && state.conn.open) {
+                    state.conn.send({ type: 'STATUS_UPDATE', snapId: snapId, status: 'read' });
+                }
+
+                startSelfDestructTimer(snapId);
+            }
+        }
+
+        function updateSnapStatusUI(snapId, status) {
+            const statusEl = document.getElementById(`status-${snapId}`);
+            if (!statusEl) return;
+
+            if (status === 'delivered') {
+                statusEl.className = "flex items-center gap-0.5 text-slate-400 font-medium";
+                statusEl.innerHTML = `<i data-lucide="check-check" class="w-3.5 h-3.5 text-slate-400"></i> Delivered`;
+            } else if (status === 'read') {
+                statusEl.className = "flex items-center gap-0.5 text-sky-400 font-medium";
+                statusEl.innerHTML = `<i data-lucide="check-check" class="w-3.5 h-3.5 text-sky-400"></i> Read`;
+            }
+            lucide.createIcons();
         }
 
         function renderIncomingSnap(snap) {
@@ -702,7 +804,7 @@
                 document.execCommand('copy');
                 document.body.removeChild(el);
             }
-            showToast("Stranger ID copied to clipboard!", "info");
+            showToast("Room ID copied to clipboard!", "info");
         }
 
         function scrollToBottom() {
