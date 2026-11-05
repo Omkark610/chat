@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="en" class="h-full bg-neutral-950 text-neutral-100 font-sans">
+<html lang="en" class="h-full bg-slate-950 text-slate-100">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>StrangerChat - E2EE Ephemeral P2P Chat</title>
+    <title>StrangerChat - Encrypted & Ephemeral P2P Chat</title>
 
     <!-- Google AdSense -->
     <meta name="google-adsense-account" content="ca-pub-7963880628277539">
@@ -21,669 +21,721 @@
 
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <script>
-        tailwind.config = {
-            theme: {
-                extend: {
-                    colors: {
-                        snapyellow: '#FFFC00',
-                        snapdark: '#0D0D0E',
-                        snapcard: '#18181B',
-                        snapborder: '#27272A'
-                    }
-                }
-            }
-        }
-    </script>
-    <!-- PeerJS CDN -->
+    <!-- PeerJS for P2P WebRTC -->
     <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
     <!-- Lucide Icons -->
     <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- Inter Font -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
     <style>
-        /* Custom scrollbars */
-        ::-webkit-scrollbar {
-            width: 6px;
-        }
-        ::-webkit-scrollbar-track {
-            background: #18181B;
-        }
-        ::-webkit-scrollbar-thumb {
-            background: #3F3F46;
-            border-radius: 9999px;
-        }
-        ::-webkit-scrollbar-thumb:hover {
-            background: #52525B;
-        }
-        
-        /* Snap pulse effect */
-        @keyframes pulse-ring {
-            0% { transform: scale(0.95); opacity: 0.8; }
-            50% { transform: scale(1.05); opacity: 0.4; }
-            100% { transform: scale(0.95); opacity: 0.8; }
-        }
-        .pulse-ring {
-            animation: pulse-ring 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
-        }
+        body { font-family: 'Inter', sans-serif; }
+        .snap-gradient { background: linear-gradient(135deg, #FFFC00 0%, #FF8800 100%); }
+        .glass-panel { background: rgba(15, 23, 42, 0.75); backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.1); }
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: rgba(0,0,0,0.1); }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 3px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.4); }
     </style>
 </head>
-<body class="h-full flex flex-col bg-snapdark text-neutral-100 antialiased selection:bg-snapyellow selection:text-black">
+<body class="h-full flex flex-col justify-between overflow-hidden bg-slate-950">
 
-    <!-- Toast Notification Container -->
-    <div id="toast-container" class="fixed top-4 right-4 z-50 flex flex-col gap-2 max-w-sm w-full pointer-events-none"></div>
-
-    <!-- Main Container -->
-    <div class="flex-1 flex flex-col max-w-4xl w-full mx-auto p-2 sm:p-4 h-full overflow-hidden">
-        
-        <!-- Header -->
-        <header class="flex items-center justify-between py-3 px-4 bg-snapcard border border-snapborder rounded-2xl mb-3 shadow-lg">
-            <div class="flex items-center space-x-3">
-                <div class="w-10 h-10 rounded-xl bg-snapyellow flex items-center justify-center text-black font-extrabold shadow-md">
-                    <i data-lucide="ghost" class="w-6 h-6 stroke-[2.5]"></i>
-                </div>
-                <div>
-                    <h1 class="font-bold text-lg leading-none tracking-tight flex items-center gap-2">
-                        StrangerChat
-                        <span class="text-[10px] uppercase font-mono px-2 py-0.5 rounded-full bg-snapyellow/10 text-snapyellow border border-snapyellow/20">P2P Snap</span>
-                    </h1>
-                    <p class="text-xs text-neutral-400 mt-0.5">PeerJS WebRTC • Ephemeral 60s Messages</p>
-                </div>
+    <!-- Header -->
+    <header class="w-full glass-panel z-20 px-4 py-3 flex items-center justify-between border-b border-slate-800">
+        <div class="flex items-center gap-2">
+            <div class="w-9 h-9 rounded-xl snap-gradient flex items-center justify-center text-slate-950 font-bold shadow-lg shadow-yellow-500/20">
+                <i data-lucide="ghost" class="w-5 h-5 stroke-[2.5]"></i>
             </div>
-
-            <!-- E2EE Status Indicator -->
-            <div id="e2ee-status" class="hidden sm:flex items-center gap-2 text-xs font-mono px-3 py-1.5 rounded-full bg-emerald-950/40 text-emerald-400 border border-emerald-800/40">
-                <i data-lucide="shield-check" class="w-4 h-4 text-emerald-400"></i>
-                <span>AES-GCM 256 E2EE</span>
-            </div>
-        </header>
-
-        <!-- Connection / Lobby View -->
-        <div id="lobby-view" class="flex-1 flex flex-col justify-center items-center p-4 bg-snapcard border border-snapborder rounded-2xl shadow-xl overflow-y-auto">
-            <div class="max-w-md w-full space-y-6">
-                <!-- Status Badge -->
-                <div class="text-center">
-                    <div id="connection-badge" class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-neutral-900 border border-neutral-800 text-xs text-neutral-400 font-mono">
-                        <span class="w-2 h-2 rounded-full bg-yellow-500 animate-pulse"></span>
-                        <span id="connection-status-text">Initializing PeerJS Network...</span>
-                    </div>
-                </div>
-
-                <!-- User ID Card -->
-                <div class="bg-neutral-900/80 border border-neutral-800 rounded-xl p-4 text-center relative overflow-hidden">
-                    <span class="text-xs font-semibold text-neutral-400 uppercase tracking-wider block mb-1">Your Stranger ID</span>
-                    <div class="flex items-center justify-center gap-2">
-                        <code id="my-peer-id" class="text-xl font-mono font-bold text-snapyellow select-all tracking-wider">Generating...</code>
-                        <button id="btn-copy-id" onclick="copyMyId()" disabled class="p-2 hover:bg-neutral-800 rounded-lg text-neutral-400 hover:text-white transition cursor-pointer disabled:opacity-50" title="Copy ID">
-                            <i data-lucide="copy" class="w-4 h-4"></i>
-                        </button>
-                    </div>
-                    <p class="text-[11px] text-neutral-500 mt-2">Share this ID with a friend to establish a direct, encrypted room.</p>
-                </div>
-
-                <div class="relative flex py-1 items-center">
-                    <div class="flex-grow border-t border-neutral-800"></div>
-                    <span class="flex-shrink mx-4 text-xs font-bold text-neutral-500 uppercase tracking-wider">Connect to Peer</span>
-                    <div class="flex-grow border-t border-neutral-800"></div>
-                </div>
-
-                <!-- Connect to Peer Form -->
-                <div class="space-y-3">
-                    <div>
-                        <label for="remote-id-input" class="block text-xs font-semibold text-neutral-400 uppercase tracking-wider mb-2">Remote Peer ID</label>
-                        <div class="flex gap-2">
-                            <input type="text" id="remote-id-input" placeholder="Paste peer ID here..." class="flex-1 bg-neutral-900 border border-neutral-800 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-snapyellow transition font-mono">
-                            <button id="btn-join" onclick="connectToPeer()" class="bg-snapyellow text-black font-bold px-5 py-3 rounded-xl hover:bg-yellow-300 transition flex items-center gap-2 cursor-pointer shadow-lg shadow-yellow-500/10">
-                                <i data-lucide="zap" class="w-4 h-4 fill-current"></i>
-                                Connect
-                            </button>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Privacy & Architecture Callout -->
-                <div class="grid grid-cols-2 gap-3 pt-2 text-xs text-neutral-400">
-                    <div class="bg-neutral-900/50 p-3 rounded-xl border border-neutral-800/50 flex items-start gap-2.5">
-                        <i data-lucide="lock" class="w-4 h-4 text-snapyellow shrink-0 mt-0.5"></i>
-                        <span>Zero server storage. Direct WebRTC DataChannels.</span>
-                    </div>
-                    <div class="bg-neutral-900/50 p-3 rounded-xl border border-neutral-800/50 flex items-start gap-2.5">
-                        <i data-lucide="clock" class="w-4 h-4 text-snapyellow shrink-0 mt-0.5"></i>
-                        <span>Messages self-destruct 60s after being opened.</span>
-                    </div>
-                </div>
+            <div>
+                <h1 class="font-bold text-lg tracking-tight text-white flex items-center gap-1.5">
+                    StrangerChat
+                    <span class="text-[10px] px-2 py-0.5 rounded-full bg-yellow-500/10 text-yellow-400 font-medium border border-yellow-500/20">E2EE Snap</span>
+                </h1>
+                <p class="text-xs text-slate-400">Max 2 peers • Auto-deletes in 60s</p>
             </div>
         </div>
 
-        <!-- Active Chat View (Hidden initially) -->
-        <div id="chat-view" class="hidden flex-1 flex-col bg-snapcard border border-snapborder rounded-2xl shadow-xl overflow-hidden">
-            <!-- Room Info Header -->
-            <div class="bg-neutral-900/90 px-4 py-3 border-b border-snapborder flex items-center justify-between">
-                <div class="flex items-center gap-3">
-                    <div class="relative">
-                        <div class="w-3 h-3 rounded-full bg-emerald-500 border-2 border-snapcard"></div>
-                        <span class="absolute -top-1 -right-1 flex h-3 w-3">
-                            <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                        </span>
-                    </div>
-                    <div>
-                        <div class="flex items-center gap-2">
-                            <span class="font-bold text-sm">Connected Peer</span>
-                            <span id="peer-role-tag" class="text-[10px] font-mono px-2 py-0.5 bg-neutral-800 rounded text-neutral-400">Peer</span>
-                        </div>
-                        <p id="chat-peer-id" class="text-xs font-mono text-neutral-400 truncate max-w-[200px] sm:max-w-md">ID: ---</p>
+        <div class="flex items-center gap-2">
+            <!-- Connection Status -->
+            <div id="network-status" class="hidden sm:flex items-center gap-2 text-xs px-3 py-1.5 rounded-full bg-yellow-500/10 text-yellow-400 border border-yellow-500/20">
+                <span class="w-2 h-2 rounded-full bg-yellow-400 animate-pulse"></span>
+                <span>Initializing PeerJS...</span>
+            </div>
+            <!-- Security Badge -->
+            <div class="flex items-center gap-1 text-xs px-3 py-1.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20" title="End-to-End Encrypted via ECDH + AES-256-GCM">
+                <i data-lucide="shield-check" class="w-3.5 h-3.5"></i>
+                <span class="hidden md:inline font-medium">Encrypted</span>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content Area -->
+    <main class="flex-1 relative flex flex-col max-w-4xl w-full mx-auto p-3 sm:p-4 overflow-hidden">
+        
+        <!-- Welcome / Room Setup Screen (Shown before connecting to peer) -->
+        <div id="setup-screen" class="flex-1 flex flex-col items-center justify-center gap-6 text-center z-10 my-auto">
+            <div class="max-w-md w-full glass-panel p-6 sm:p-8 rounded-3xl shadow-2xl border border-slate-800 space-y-6">
+                <div class="w-16 h-16 snap-gradient rounded-2xl flex items-center justify-center mx-auto shadow-xl shadow-yellow-500/20">
+                    <i data-lucide="shield-lock" class="w-8 h-8 text-slate-950"></i>
+                </div>
+                
+                <div>
+                    <h2 class="text-2xl font-bold text-white">Private Ephemeral Room</h2>
+                    <p class="text-xs text-slate-400 mt-1">Direct Peer-to-Peer • Unreadable by PeerJS or servers</p>
+                </div>
+
+                <!-- User Stranger ID Box -->
+                <div class="p-4 rounded-2xl bg-slate-900/80 border border-slate-800 text-left space-y-2">
+                    <span class="text-xs text-slate-400 font-medium">Your Stranger ID:</span>
+                    <div class="flex items-center justify-between gap-2">
+                        <code id="my-peer-id-display" class="font-mono text-base font-bold text-yellow-400 truncate">Generating...</code>
+                        <button onclick="copyMyId()" class="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-200 transition flex items-center gap-1">
+                            <i data-lucide="copy" class="w-3.5 h-3.5"></i> Copy
+                        </button>
                     </div>
                 </div>
 
-                <div class="flex items-center gap-2">
-                    <button onclick="disconnectPeer()" class="px-3 py-1.5 text-xs font-semibold rounded-lg bg-red-950/40 hover:bg-red-900/50 text-red-400 border border-red-900/40 transition flex items-center gap-1.5 cursor-pointer">
-                        <i data-lucide="phone-off" class="w-3.5 h-3.5"></i>
-                        <span>Leave Room</span>
+                <div class="relative flex items-center py-1">
+                    <div class="flex-grow border-t border-slate-800"></div>
+                    <span class="flex-shrink mx-3 text-xs text-slate-500 uppercase tracking-wider font-semibold">Join a Stranger</span>
+                    <div class="flex-grow border-t border-slate-800"></div>
+                </div>
+
+                <!-- Connect Input Form -->
+                <div class="space-y-3">
+                    <input type="text" id="target-peer-id" placeholder="Enter Stranger ID (e.g. stranger-849204)" 
+                        class="w-full px-4 py-3 rounded-2xl bg-slate-900 border border-slate-800 text-slate-100 placeholder-slate-500 text-sm focus:outline-none focus:border-yellow-500/50 transition">
+                    
+                    <button onclick="connectToPeer()" id="connect-btn" class="w-full py-3.5 rounded-2xl snap-gradient font-bold text-slate-950 text-sm shadow-lg shadow-yellow-500/10 hover:opacity-95 transition flex items-center justify-center gap-2">
+                        <i data-lucide="zap" class="w-4 h-4 fill-slate-950"></i> Start Encrypted Chat
                     </button>
                 </div>
-            </div>
 
-            <!-- Messages Log -->
-            <div id="messages-container" class="flex-1 p-4 overflow-y-auto space-y-4">
-                <!-- Welcome Notice -->
-                <div class="text-center my-4">
-                    <div class="inline-block bg-neutral-900/60 border border-neutral-800/80 rounded-xl p-3 max-w-sm text-xs text-neutral-400">
-                        <div class="flex items-center justify-center gap-1.5 font-semibold text-snapyellow mb-1">
-                            <i data-lucide="eye" class="w-4 h-4"></i> Ephemeral Mode Active
-                        </div>
-                        Messages display automatically upon arrival and self-destruct after 60 seconds.
-                    </div>
-                </div>
+                <p class="text-[11px] text-slate-500 leading-relaxed">
+                    Max 2 participants per room. Messages and pictures are encrypted directly between browsers and self-destruct 60 seconds after opening.
+                </p>
             </div>
+        </div>
 
-            <!-- Image Capture / Preview Modal Layer -->
-            <div id="camera-modal" class="hidden fixed inset-0 z-50 bg-black/90 flex flex-col justify-between p-4 backdrop-blur-md">
-                <div class="flex justify-between items-center">
-                    <span class="text-sm font-bold text-snapyellow">Snap Camera</span>
-                    <button onclick="closeCameraModal()" class="p-2 text-neutral-400 hover:text-white"><i data-lucide="x" class="w-6 h-6"></i></button>
-                </div>
-                <div class="relative flex-1 flex items-center justify-center overflow-hidden my-4 rounded-2xl bg-neutral-900 border border-neutral-800">
-                    <video id="camera-video" autoplay playsinline class="w-full h-full object-cover"></video>
-                    <canvas id="camera-canvas" class="hidden"></canvas>
-                </div>
-                <div class="flex justify-center items-center pb-4">
-                    <button onclick="takeSnapPhoto()" class="w-16 h-16 rounded-full bg-snapyellow border-4 border-white flex items-center justify-center shadow-lg hover:scale-105 active:scale-95 transition">
-                        <div class="w-12 h-12 rounded-full border-2 border-black"></div>
-                    </button>
-                </div>
-            </div>
-
-            <!-- Image Attachment Preview Box -->
-            <div id="attachment-preview" class="hidden px-4 py-2 bg-neutral-900 border-t border-snapborder flex items-center justify-between">
-                <div class="flex items-center gap-3">
-                    <img id="img-preview-src" class="w-12 h-12 object-cover rounded-lg border border-neutral-700">
+        <!-- Chat Area (Hidden until connected) -->
+        <div id="chat-screen" class="hidden flex-1 flex flex-col h-full overflow-hidden glass-panel rounded-3xl border border-slate-800 shadow-2xl relative">
+            
+            <!-- Room Status Bar -->
+            <div class="px-4 py-3 bg-slate-900/80 border-b border-slate-800/80 flex items-center justify-between">
+                <div class="flex items-center gap-2.5">
+                    <div class="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></div>
                     <div>
-                        <span class="text-xs font-semibold text-neutral-300 block">Photo Attachment</span>
-                        <span class="text-[10px] text-neutral-500">Ready to snap (Encrypted)</span>
+                        <span class="text-xs font-semibold text-slate-200">Connected with Stranger</span>
+                        <p id="chat-peer-id" class="text-[10px] font-mono text-slate-400"></p>
                     </div>
                 </div>
-                <button onclick="clearAttachment()" class="p-1 hover:bg-neutral-800 rounded text-neutral-400 hover:text-white">
-                    <i data-lucide="trash-2" class="w-4 h-4"></i>
+                <button onclick="leaveRoom()" class="px-3 py-1.5 rounded-xl bg-red-500/10 hover:bg-red-500/20 text-red-400 text-xs font-semibold border border-red-500/20 transition flex items-center gap-1.5">
+                    <i data-lucide="phone-off" class="w-3.5 h-3.5"></i> Leave Room
                 </button>
+            </div>
+
+            <!-- Messages List -->
+            <div id="messages-container" class="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar">
+                <!-- Messages dynamic insert here -->
             </div>
 
             <!-- Input Bar -->
-            <div class="p-3 bg-neutral-900/90 border-t border-snapborder flex items-center gap-2">
-                <!-- Camera Button -->
-                <button onclick="openCameraModal()" class="p-2.5 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-neutral-200 transition cursor-pointer" title="Take Snap Photo">
-                    <i data-lucide="camera" class="w-5 h-5"></i>
-                </button>
+            <div class="p-3 sm:p-4 bg-slate-900/90 border-t border-slate-800/80">
+                <form id="chat-form" onsubmit="handleSendMessage(event)" class="flex items-center gap-2">
+                    
+                    <!-- File Upload Button -->
+                    <label class="p-3 rounded-2xl bg-slate-800 hover:bg-slate-700 text-slate-300 transition cursor-pointer flex items-center justify-center shrink-0">
+                        <i data-lucide="image" class="w-5 h-5 text-slate-300"></i>
+                        <input type="file" id="image-input" accept="image/*" class="hidden" onchange="sendImageSnap(event)">
+                    </label>
 
-                <!-- Upload File Button -->
-                <label class="p-2.5 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-neutral-200 transition cursor-pointer" title="Attach Image">
-                    <i data-lucide="image" class="w-5 h-5"></i>
-                    <input type="file" id="file-input" accept="image/*" class="hidden" onchange="handleFileSelect(event)">
-                </label>
+                    <!-- Text Input -->
+                    <input type="text" id="message-input" placeholder="Send an encrypted snap..." 
+                           class="flex-1 px-4 py-3 rounded-2xl bg-slate-950 border border-slate-800 text-slate-100 placeholder-slate-500 text-sm focus:outline-none focus:border-yellow-500/50 transition" autocomplete="off">
 
-                <!-- Text Input -->
-                <input type="text" id="chat-input" placeholder="Send a self-destructing snap..." class="flex-1 bg-neutral-950 border border-neutral-800 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-snapyellow transition" onkeydown="if(event.key === 'Enter') sendSnapMessage()">
-
-                <!-- Send Button -->
-                <button onclick="sendSnapMessage()" class="p-2.5 bg-snapyellow text-black rounded-xl hover:bg-yellow-300 transition cursor-pointer font-bold flex items-center justify-center">
-                    <i data-lucide="send" class="w-5 h-5"></i>
-                </button>
+                    <!-- Send Button -->
+                    <button type="submit" class="p-3 rounded-2xl snap-gradient text-slate-950 font-bold hover:opacity-90 transition shrink-0">
+                        <i data-lucide="send" class="w-5 h-5 fill-slate-950"></i>
+                    </button>
+                </form>
             </div>
         </div>
-    </div>
 
-    <!-- Application JavaScript Logic -->
+    </main>
+
+    <!-- Toast Container -->
+    <div id="toast-container" class="fixed bottom-4 right-4 z-50 flex flex-col gap-2 pointer-events-none"></div>
+
+    <!-- Application Script -->
     <script>
-        /* ==========================================================================
-           1. Global State & Initialization
-           ========================================================================== */
-        let peer = null;
-        let activeConn = null;
-        let isHost = false;
-        let e2eeKeyPair = null;
-        let sharedSecretKey = null; // Derived CryptoKey (AES-GCM 256)
-        let pendingImageData = null; // Base64 string for photo send
+        // Global App State
+        const state = {
+            peer: null,
+            conn: null,
+            myId: generateSimpleId(),
+            peerId: null,
+            isHost: false,
+            keyPair: null,
+            sharedSecret: null,
+            peerPublicKey: null,
+            connected: false,
+            peerConnected: false
+        };
 
-        const MESSAGE_TTL_SECONDS = 60; // Self destruct duration
-
-        // Initialize Lucide Icons
-        window.addEventListener('DOMContentLoaded', () => {
+        // Initialize App
+        window.onload = async () => {
             lucide.createIcons();
-            initWebCryptoECDH().then(() => {
-                initPeerJS();
-            });
-        });
+            document.getElementById('my-peer-id-display').innerText = state.myId;
 
-        /* ==========================================================================
-           2. Web Crypto API: End-to-End Encryption Setup (ECDH P-256 + AES-GCM 256)
-           ========================================================================== */
-        async function initWebCryptoECDH() {
+            // Generate ECDH Keypair for E2EE
+            await initCryptography();
+
+            // Initialize PeerJS with quick connection fallback handling
+            initPeerJS();
+        };
+
+        function generateSimpleId() {
+            // Generate a simple 6-digit random number
+            const num = Math.floor(100000 + Math.random() * 900000);
+            return `stranger-${num}`;
+        }
+
+        function initPeerJS() {
+            const statusEl = document.getElementById('network-status');
+            statusEl.innerText = 'Initializing PeerJS Network...';
+
+            // Timeout safety fallback if signaling server is slow/unresponsive
+            let connectionTimeout = setTimeout(() => {
+                if (!state.peer || !state.peer.open) {
+                    statusEl.innerText = 'Connecting via backup network...';
+                    reconnectWithFallbackPeer();
+                }
+            }, 4000);
+
             try {
-                // Generate Ephemeral Key Pair for Elliptic Curve Diffie-Hellman
-                e2eeKeyPair = await window.crypto.subtle.generateKey(
+                // Initialize Peer with public STUN servers for fast candidate gathering
+                state.peer = new Peer(state.myId, {
+                    debug: 1,
+                    config: {
+                        iceServers: [
+                            { urls: 'stun:stun.l.google.com:19302' },
+                            { urls: 'stun:stun1.l.google.com:19302' },
+                            { urls: 'stun:stun2.l.google.com:19302' }
+                        ]
+                    }
+                });
+
+                state.peer.on('open', (id) => {
+                    clearTimeout(connectionTimeout);
+                    state.myId = id;
+                    document.getElementById('my-peer-id-display').innerText = id;
+
+                    statusEl.classList.remove('bg-yellow-500/10', 'text-yellow-400', 'border-yellow-500/20');
+                    statusEl.classList.add('bg-emerald-500/10', 'text-emerald-400', 'border-emerald-500/20');
+                    statusEl.innerText = 'Peer Network Ready';
+                    showToast('Network connected!', 'info');
+                });
+
+                state.peer.on('connection', (connection) => {
+                    if (state.conn && state.conn.open) {
+                        // Room full rule enforcement: max 2 people
+                        connection.on('open', () => {
+                            connection.send({ type: 'ROOM_FULL', payload: 'This room already has 2 participants.' });
+                            setTimeout(() => connection.close(), 500);
+                        });
+                        return;
+                    }
+                    handleIncomingConnection(connection);
+                });
+
+                state.peer.on('error', (err) => {
+                    clearTimeout(connectionTimeout);
+                    console.warn('PeerJS Connection Warning:', err);
+                    
+                    if (err.type === 'unavailable-id') {
+                        // Regeneration if ID collides
+                        state.myId = generateSimpleId();
+                        document.getElementById('my-peer-id-display').innerText = state.myId;
+                        setTimeout(initPeerJS, 500);
+                    } else if (err.type === 'network' || err.type === 'server-error' || err.type === 'socket-error') {
+                        statusEl.innerText = 'Network error. Retrying...';
+                        setTimeout(reconnectWithFallbackPeer, 2000);
+                    }
+                });
+
+                state.peer.on('disconnected', () => {
+                    statusEl.innerText = 'Reconnecting network...';
+                    if (state.peer && !state.peer.destroyed) {
+                        state.peer.reconnect();
+                    }
+                });
+            } catch (err) {
+                clearTimeout(connectionTimeout);
+                reconnectWithFallbackPeer();
+            }
+        }
+
+        function reconnectWithFallbackPeer() {
+            if (state.peer) {
+                try { state.peer.destroy(); } catch (e) {}
+            }
+            // Generate a fresh simple ID in case of collision/stale session
+            state.myId = generateSimpleId();
+            document.getElementById('my-peer-id-display').innerText = state.myId;
+            
+            // Retry peer initialization with default peer server settings
+            state.peer = new Peer(state.myId, {
+                debug: 1,
+                config: {
+                    iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+                }
+            });
+
+            const statusEl = document.getElementById('network-status');
+            state.peer.on('open', (id) => {
+                statusEl.classList.remove('bg-yellow-500/10', 'text-yellow-400', 'border-yellow-500/20');
+                statusEl.classList.add('bg-emerald-500/10', 'text-emerald-400', 'border-emerald-500/20');
+                statusEl.innerText = 'Peer Network Ready';
+            });
+
+            state.peer.on('connection', (connection) => {
+                if (state.conn && state.conn.open) {
+                    connection.on('open', () => {
+                        connection.send({ type: 'ROOM_FULL', payload: 'This room already has 2 participants.' });
+                        setTimeout(() => connection.close(), 500);
+                    });
+                    return;
+                }
+                handleIncomingConnection(connection);
+            });
+        }
+
+        // --- Cryptography (ECDH + AES-256-GCM) ---
+
+        async function initCryptography() {
+            try {
+                state.keyPair = await window.crypto.subtle.generateKey(
                     { name: "ECDH", namedCurve: "P-256" },
                     true,
                     ["deriveKey", "deriveBits"]
                 );
             } catch (err) {
-                console.error("Crypto init error:", err);
-                showToast("Failed to initialize Web Crypto E2EE keys", "error");
+                console.error("Crypto KeyGen Error:", err);
+                showToast("Cryptography initialization failed", "error");
             }
         }
 
-        // Export Public Key to Raw ArrayBuffer/JSON for peer exchange
-        async function exportPublicKey() {
-            const exported = await window.crypto.subtle.exportKey("jwk", e2eeKeyPair.publicKey);
-            return exported;
+        async function getExportedPublicKey() {
+            const exported = await window.crypto.subtle.exportKey("spki", state.keyPair.publicKey);
+            return window.btoa(String.fromCharCode(...new Uint8Array(exported)));
         }
 
-        // Derive Shared Secret Key (AES-GCM) using Peer's Public Key
-        async function deriveSharedAESKey(peerJwkKey) {
-            try {
-                const importedPeerPubKey = await window.crypto.subtle.importKey(
-                    "jwk",
-                    peerJwkKey,
-                    { name: "ECDH", namedCurve: "P-256" },
-                    true,
-                    []
-                );
-
-                sharedSecretKey = await window.crypto.subtle.deriveKey(
-                    { name: "ECDH", public: importedPeerPubKey },
-                    e2eeKeyPair.privateKey,
-                    { name: "AES-GCM", length: 256 },
-                    false,
-                    ["encrypt", "decrypt"]
-                );
-
-                document.getElementById('e2ee-status').classList.remove('hidden');
-                document.getElementById('e2ee-status').classList.add('flex');
-                showToast("End-to-End Encryption Key Exchange Complete! 🔒", "success");
-            } catch (err) {
-                console.error("Key derivation failed:", err);
-                showToast("E2EE Key derivation error", "error");
+        async function deriveSharedSecret(peerPublicKeyBase64) {
+            const binaryDer = window.atob(peerPublicKeyBase64);
+            const binaryArr = new Uint8Array(binaryDer.length);
+            for (let i = 0; i < binaryDer.length; i++) {
+                binaryArr[i] = binaryDer.charCodeAt(i);
             }
-        }
 
-        // Encrypt Text/Payload with AES-GCM 256
-        async function encryptPayload(dataObject) {
-            if (!sharedSecretKey) throw new Error("No shared encryption key derived!");
-            const iv = window.crypto.getRandomValues(new Uint8Array(12)); // 96-bit IV
-            const enc = new TextEncoder();
-            const encodedData = enc.encode(JSON.stringify(dataObject));
-
-            const cipherBuffer = await window.crypto.subtle.encrypt(
-                { name: "AES-GCM", iv: iv },
-                sharedSecretKey,
-                encodedData
+            const importedPeerKey = await window.crypto.subtle.importKey(
+                "spki",
+                binaryArr.buffer,
+                { name: "ECDH", namedCurve: "P-256" },
+                true,
+                []
             );
 
-            // Convert to Base64 strings to handle large media payloads reliably without call-stack overflow
-            const ciphertextBytes = new Uint8Array(cipherBuffer);
-            let binaryIv = '';
-            let binaryCipher = '';
-            
-            for (let i = 0; i < iv.byteLength; i++) {
-                binaryIv += String.fromCharCode(iv[i]);
+            state.sharedSecret = await window.crypto.subtle.deriveKey(
+                { name: "ECDH", public: importedPeerKey },
+                state.keyPair.privateKey,
+                { name: "AES-GCM", length: 256 },
+                false,
+                ["encrypt", "decrypt"]
+            );
+        }
+
+        async function encryptPayload(plainText) {
+            if (!state.sharedSecret) throw new Error("No encryption key established");
+
+            const encoder = new TextEncoder();
+            const data = encoder.encode(plainText);
+            const iv = window.crypto.getRandomValues(new Uint8Array(12));
+
+            const encryptedBuffer = await window.crypto.subtle.encrypt(
+                { name: "AES-GCM", iv: iv },
+                state.sharedSecret,
+                data
+            );
+
+            // Safe Base64 encoding to support large arrays (images/files) without stack overflow
+            const cipherArray = new Uint8Array(encryptedBuffer);
+            let cipherString = "";
+            for (let i = 0; i < cipherArray.length; i++) {
+                cipherString += String.fromCharCode(cipherArray[i]);
             }
-            for (let i = 0; i < ciphertextBytes.byteLength; i++) {
-                binaryCipher += String.fromCharCode(ciphertextBytes[i]);
+
+            let ivString = "";
+            for (let i = 0; i < iv.length; i++) {
+                ivString += String.fromCharCode(iv[i]);
             }
 
             return {
-                ciphertext: btoa(binaryCipher),
-                iv: btoa(binaryIv)
+                ciphertext: window.btoa(cipherString),
+                iv: window.btoa(ivString)
             };
         }
 
-        // Decrypt Payload with AES-GCM 256
         async function decryptPayload(encryptedObj) {
-            if (!sharedSecretKey) throw new Error("No shared key to decrypt!");
-            
-            // Decode Base64 back to Uint8Array
-            const binaryIv = atob(encryptedObj.iv);
-            const binaryCipher = atob(encryptedObj.ciphertext);
-            
-            const iv = new Uint8Array(binaryIv.length);
-            for (let i = 0; i < binaryIv.length; i++) {
-                iv[i] = binaryIv.charCodeAt(i);
+            if (!state.sharedSecret) throw new Error("No encryption key derived");
+
+            const ivStr = window.atob(encryptedObj.iv);
+            const iv = new Uint8Array(ivStr.length);
+            for (let i = 0; i < ivStr.length; i++) {
+                iv[i] = ivStr.charCodeAt(i);
             }
 
-            const ciphertext = new Uint8Array(binaryCipher.length);
-            for (let i = 0; i < binaryCipher.length; i++) {
-                ciphertext[i] = binaryCipher.charCodeAt(i);
+            const cipherStr = window.atob(encryptedObj.ciphertext);
+            const cipherBytes = new Uint8Array(cipherStr.length);
+            for (let i = 0; i < cipherStr.length; i++) {
+                cipherBytes[i] = cipherStr.charCodeAt(i);
             }
 
             const decryptedBuffer = await window.crypto.subtle.decrypt(
                 { name: "AES-GCM", iv: iv },
-                sharedSecretKey,
-                ciphertext
+                state.sharedSecret,
+                cipherBytes.buffer
             );
 
-            const dec = new TextDecoder();
-            return JSON.parse(dec.decode(decryptedBuffer));
+            const decoder = new TextDecoder();
+            return decoder.decode(decryptedBuffer);
         }
 
-        /* ==========================================================================
-           3. PeerJS Signaling & Connection Handling (Max 2 Room Guard)
-           ========================================================================== */
-        function initPeerJS() {
-            updateStatusText("Connecting to PeerJS Signaling Server...");
+        // --- Connection Logic ---
 
-            // Generate a simple, instant 6-digit random Stranger ID locally
-            const simpleId = 'stranger-' + Math.floor(100000 + Math.random() * 900000);
-            
-            // Instantly render the ID on UI without waiting for server response
-            document.getElementById('my-peer-id').innerText = simpleId;
-            document.getElementById('btn-copy-id').disabled = false;
-
-            // Safe options with STUN configuration and explicitly resilient setup
-            const peerOptions = {
-                debug: 1,
-                config: {
-                    iceServers: [
-                        { urls: 'stun:stun.l.google.com:19302' },
-                        { urls: 'stun:stun1.l.google.com:19302' },
-                        { urls: 'stun:stun2.l.google.com:19302' },
-                        { urls: 'stun:stun3.l.google.com:19302' },
-                        { urls: 'stun:stun4.l.google.com:19302' }
-                    ]
-                }
-            };
-
-            // Initialize Peer with custom simple ID
-            peer = new Peer(simpleId, peerOptions);
-
-            peer.on('open', (id) => {
-                document.getElementById('my-peer-id').innerText = id;
-                updateStatusText("Ready for direct connection");
-            });
-
-            // Handle Incoming Connection Request (Host side)
-            peer.on('connection', (conn) => {
-                // Max 2-person room enforcement (Host + 1 Peer)
-                if (activeConn && activeConn.open) {
-                    conn.on('open', () => {
-                        conn.send({ type: 'ROOM_FULL', message: 'Room already has maximum allowed 2 participants.' });
-                        setTimeout(() => conn.close(), 500);
-                    });
-                    return;
-                }
-
-                setupConnection(conn, true);
-            });
-
-            peer.on('error', (err) => {
-                const errType = err.type || 'network-error';
-                const errMsg = err.message || 'Signal server error occurred.';
-                console.warn('PeerJS Non-Fatal Event:', errType, errMsg);
-                
-                if (errType === 'peer-unavailable') {
-                    showToast("Peer ID not found or offline.", "error");
-                    resetToLobby();
-                } else if (errType === 'unavailable-id') {
-                    showToast("ID already taken. Re-generating...", "info");
-                    setTimeout(initPeerJS, 1000);
-                } else {
-                    updateStatusText("Network fallback active.");
-                }
-            });
-        }
-
-        // Connect to a Remote Peer (Client side)
         function connectToPeer() {
-            const remoteId = document.getElementById('remote-id-input').value.trim();
-            if (!remoteId) {
-                showToast("Please enter a Remote Peer ID", "error");
+            const targetId = document.getElementById('target-peer-id').value.trim();
+            if (!targetId) {
+                showToast("Please enter a Stranger ID", "error");
                 return;
             }
-            if (peer && remoteId === peer.id) {
-                showToast("You cannot connect to your own ID!", "error");
+            if (targetId === state.myId) {
+                showToast("You cannot connect to yourself!", "error");
                 return;
             }
 
-            updateStatusText("Connecting to " + remoteId + "...");
-            const conn = peer.connect(remoteId, { reliable: true });
-            setupConnection(conn, false);
+            showToast("Connecting to " + targetId + "...", "info");
+            const connection = state.peer.connect(targetId, { reliable: true });
+            state.isHost = true;
+            setupConnectionHandlers(connection);
         }
 
-        // Configure DataChannel event handlers
-        function setupConnection(conn, isHostUser) {
-            activeConn = conn;
-            isHost = isHostUser;
+        function handleIncomingConnection(connection) {
+            state.isHost = false;
+            setupConnectionHandlers(connection);
+        }
 
-            conn.on('open', async () => {
-                // Send E2EE ECDH Public Key Handshake
-                const pubKeyJwk = await exportPublicKey();
-                conn.send({
-                    type: 'HANDSHAKE',
-                    pubKey: pubKeyJwk,
-                    role: isHost ? 'HOST' : 'JOINEE'
-                });
+        function setupConnectionHandlers(connection) {
+            state.conn = connection;
+            state.peerId = connection.peer;
 
-                switchToChatView(conn.peer, isHost ? 'Host' : 'Joinee');
-                showToast("Direct P2P DataChannel Established!", "success");
+            connection.on('open', async () => {
+                state.peerConnected = true;
+                
+                // Perform Key Exchange Handshake
+                const exportedPublicKey = await getExportedPublicKey();
+                connection.send({ type: 'KEY_EXCHANGE', key: exportedPublicKey });
+
+                document.getElementById('setup-screen').classList.add('hidden');
+                document.getElementById('chat-screen').classList.remove('hidden');
+                document.getElementById('chat-peer-id').innerText = state.peerId;
+                showToast("Peer connected! Performing Key Exchange...", "info");
             });
 
-            conn.on('data', async (data) => {
+            connection.on('data', async (data) => {
                 if (data.type === 'ROOM_FULL') {
-                    showToast(data.message, "error");
-                    disconnectPeer();
+                    showToast(data.payload, "error");
+                    leaveRoom();
                     return;
                 }
 
-                if (data.type === 'HANDSHAKE') {
-                    await deriveSharedAESKey(data.pubKey);
+                if (data.type === 'KEY_EXCHANGE') {
+                    await deriveSharedSecret(data.key);
+                    showToast("Secured E2EE Session Established!", "info");
                     return;
                 }
 
                 if (data.type === 'ENCRYPTED_SNAP') {
                     try {
-                        const decryptedSnap = await decryptPayload(data.payload);
-                        renderIncomingSnapMessage(decryptedSnap);
+                        const decryptedStr = await decryptPayload(data.payload);
+                        const snap = JSON.parse(decryptedStr);
+                        renderIncomingSnap(snap);
                     } catch (err) {
-                        console.error("Decryption failed:", err);
+                        console.error("Decryption Error:", err);
                         showToast("Failed to decrypt incoming message", "error");
                     }
                 }
             });
 
-            conn.on('close', () => {
-                showToast("Peer disconnected.", "info");
-                resetToLobby();
+            connection.on('close', () => {
+                showToast("Stranger disconnected", "error");
+                leaveRoom();
             });
 
-            conn.on('error', (err) => {
-                console.error("Connection error:", err);
-                showToast("Peer connection error.", "error");
-                resetToLobby();
+            connection.on('error', (err) => {
+                console.error("DataConnection Error:", err);
+                showToast("Connection error occurred", "error");
             });
         }
 
-        /* ==========================================================================
-           4. Ephemeral Message Sending & Automatic 60-Second Self-Destruct
-           ========================================================================== */
-        async function sendSnapMessage() {
-            const textInput = document.getElementById('chat-input');
-            const messageText = textInput.value.trim();
-
-            if (!messageText && !pendingImageData) {
-                return; // Nothing to send
+        function leaveRoom() {
+            if (state.conn) {
+                try { state.conn.close(); } catch(e){}
+                state.conn = null;
             }
+            state.sharedSecret = null;
+            state.peerConnected = false;
+            
+            document.getElementById('chat-screen').classList.add('hidden');
+            document.getElementById('setup-screen').classList.remove('hidden');
+            document.getElementById('messages-container').innerHTML = '';
+            showToast("Left room", "info");
+        }
 
-            if (!activeConn || !activeConn.open) {
-                showToast("No active peer connection!", "error");
+        // --- Message & Snap Handling ---
+
+        async function handleSendMessage(e) {
+            e.preventDefault();
+            const input = document.getElementById('message-input');
+            const text = input.value.trim();
+            if (!text) return;
+
+            if (!state.conn || !state.sharedSecret) {
+                showToast("Encryption handshake incomplete!", "error");
                 return;
             }
 
-            if (!sharedSecretKey) {
-                showToast("E2EE key exchange incomplete. Retrying...", "error");
-                return;
-            }
-
-            const snapData = {
-                id: 'snap-' + Date.now() + '-' + Math.random().toString(36).substr(2, 4),
-                sender: peer.id,
-                text: messageText,
-                image: pendingImageData,
-                timestamp: Date.now()
+            const snap = {
+                id: 'snap-' + Date.now() + '-' + Math.random().toString(36).substr(2, 5),
+                type: 'text',
+                content: text,
+                timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
             };
 
             try {
-                // Encrypt payload with AES-GCM 256
-                const encryptedPayload = await encryptPayload(snapData);
-                
-                // Send through WebRTC DataChannel
-                activeConn.send({
-                    type: 'ENCRYPTED_SNAP',
-                    payload: encryptedPayload
-                });
-
-                // Display sent message locally
-                renderOutgoingSnapMessage(snapData);
-
-                // Reset inputs
-                textInput.value = '';
-                clearAttachment();
+                const encrypted = await encryptPayload(JSON.stringify(snap));
+                state.conn.send({ type: 'ENCRYPTED_SNAP', payload: encrypted });
+                renderOutgoingSnap(snap);
+                input.value = '';
             } catch (err) {
-                console.error("Sending failed:", err);
-                showToast("Encryption failed while sending message", "error");
+                showToast("Encryption failed while sending", "error");
             }
         }
 
-        // Render Sent Snap (Displays immediately, self-destructs after 60s)
-        function renderOutgoingSnapMessage(snap) {
-            const container = document.getElementById('messages-container');
-            const msgEl = document.createElement('div');
-            msgEl.id = snap.id;
-            msgEl.className = "flex flex-col items-end space-y-1 mb-4";
+        async function sendImageSnap(event) {
+            const file = event.target.files[0];
+            if (!file) return;
 
-            let mediaHtml = '';
-            if (snap.image) {
-                mediaHtml = `
-                    <div id="media-container-${snap.id}" class="my-1 relative cursor-pointer group" onclick="revealMedia('${snap.id}')">
-                        <div id="media-cover-${snap.id}" class="w-64 h-48 sm:w-72 sm:h-52 bg-neutral-900 border border-neutral-700/80 rounded-xl flex flex-col items-center justify-center gap-2 text-snapyellow hover:bg-neutral-800 transition shadow-inner">
-                            <div class="w-10 h-10 rounded-full bg-snapyellow/10 flex items-center justify-center border border-snapyellow/30 group-hover:scale-110 transition">
-                                <i data-lucide="eye" class="w-5 h-5 text-snapyellow"></i>
-                            </div>
-                            <span class="text-xs font-bold font-mono tracking-wider">TAP TO REVEAL PHOTO</span>
-                            <span class="text-[10px] text-neutral-400">Timer starts when opened</span>
-                        </div>
-                        <img id="media-img-${snap.id}" src="${snap.image}" class="hidden max-w-xs sm:max-w-sm rounded-xl border border-neutral-700 object-cover shadow-lg">
+            if (file.size > 5 * 1024 * 1024) {
+                showToast("Image size must be less than 5MB", "error");
+                return;
+            }
+
+            const reader = new FileReader();
+            reader.onload = async (e) => {
+                const base64Data = e.target.result;
+                const snap = {
+                    id: 'snap-' + Date.now() + '-' + Math.random().toString(36).substr(2, 5),
+                    type: 'image',
+                    content: base64Data,
+                    timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                };
+
+                try {
+                    const encrypted = await encryptPayload(JSON.stringify(snap));
+                    state.conn.send({ type: 'ENCRYPTED_SNAP', payload: encrypted });
+                    renderOutgoingSnap(snap);
+                    event.target.value = '';
+                } catch (err) {
+                    showToast("Failed to encrypt image", "error");
+                }
+            };
+            reader.readAsDataURL(file);
+        }
+
+        // --- Snap UI Rendering & Self-Destruct Timers ---
+
+        function renderOutgoingSnap(snap) {
+            const container = document.getElementById('messages-container');
+            const wrapper = document.createElement('div');
+            wrapper.className = "flex flex-col items-end space-y-1 mb-4";
+            wrapper.id = snap.id;
+
+            let contentHtml = '';
+            if (snap.type === 'text') {
+                contentHtml = `
+                    <div class="max-w-xs sm:max-w-md p-3.5 rounded-2xl rounded-tr-xs bg-yellow-500 text-slate-950 text-sm font-medium shadow-md">
+                        <p class="break-words">${escapeHtml(snap.content)}</p>
+                    </div>
+                `;
+            } else {
+                contentHtml = `
+                    <div class="max-w-xs sm:max-w-sm rounded-2xl rounded-tr-xs overflow-hidden border border-yellow-500/30 bg-slate-900 shadow-md">
+                        <img src="${snap.content}" class="w-full h-auto object-cover max-h-60" alt="Snap Image">
                     </div>
                 `;
             }
 
-            let textHtml = '';
-            if (snap.text) {
-                textHtml = `<p class="text-sm text-neutral-900 font-medium break-words">${escapeHtml(snap.text)}</p>`;
-            }
-
-            msgEl.innerHTML = `
-                <div class="flex items-center gap-1.5 text-[10px] text-neutral-400 font-mono">
-                    <span>You</span> • 
-                    <span id="timer-${snap.id}" class="text-snapyellow font-bold flex items-center gap-1">
-                        <i data-lucide="clock" class="w-3 h-3 inline"></i> ${snap.image ? 'Unopened' : '60s'}
-                    </span>
-                </div>
-                <div class="bg-snapyellow p-3 rounded-2xl rounded-tr-xs shadow-md max-w-sm">
-                    ${mediaHtml}
-                    ${textHtml}
+            wrapper.innerHTML = `
+                ${contentHtml}
+                <div class="flex items-center gap-1.5 text-[10px] text-slate-400 px-1">
+                    <span>Sent</span> • 
+                    <span id="timer-${snap.id}" class="text-yellow-400 font-mono">60s</span>
+                    <i data-lucide="clock" class="w-3 h-3 text-yellow-400"></i>
                 </div>
             `;
 
-            container.appendChild(msgEl);
+            container.appendChild(wrapper);
             lucide.createIcons();
             scrollToBottom();
-
-            // If there's no image, start timer immediately for text
-            if (!snap.image) {
-                startSnapCountdown(snap.id);
-            }
+            startSelfDestructTimer(snap.id);
         }
 
-        // Render Received Snap (Displays immediately, self-destructs after 60s)
-        function renderIncomingSnapMessage(snap) {
+        function renderIncomingSnap(snap) {
             const container = document.getElementById('messages-container');
-            const msgEl = document.createElement('div');
-            msgEl.id = snap.id;
-            msgEl.className = "flex flex-col items-start space-y-1 mb-4";
+            const wrapper = document.createElement('div');
+            wrapper.className = "flex flex-col items-start space-y-1 mb-4";
+            wrapper.id = snap.id;
 
-            let mediaHtml = '';
-            if (snap.image) {
-                mediaHtml = `
-                    <div id="media-container-${snap.id}" class="my-1 relative cursor-pointer group" onclick="revealMedia('${snap.id}')">
-                        <div id="media-cover-${snap.id}" class="w-64 h-48 sm:w-72 sm:h-52 bg-neutral-900 border border-neutral-700/80 rounded-xl flex flex-col items-center justify-center gap-2 text-snapyellow hover:bg-neutral-850 transition shadow-inner">
-                            <div class="w-10 h-10 rounded-full bg-snapyellow/10 flex items-center justify-center border border-snapyellow/30 group-hover:scale-110 transition">
-                                <i data-lucide="eye" class="w-5 h-5 text-snapyellow"></i>
-                            </div>
-                            <span class="text-xs font-bold font-mono tracking-wider">TAP TO REVEAL PHOTO</span>
-                            <span class="text-[10px] text-neutral-400">Timer starts when opened</span>
+            let contentHtml = '';
+            if (snap.type === 'text') {
+                // Text shows immediately
+                contentHtml = `
+                    <div class="max-w-xs sm:max-w-md p-3.5 rounded-2xl rounded-tl-xs bg-slate-800 text-slate-100 text-sm font-medium border border-slate-700/60 shadow-md">
+                        <p class="break-words">${escapeHtml(snap.content)}</p>
+                    </div>
+                `;
+            } else {
+                // Image snap has tap to reveal cover
+                contentHtml = `
+                    <div id="cover-${snap.id}" onclick="revealSnap('${snap.id}')" class="cursor-pointer max-w-xs sm:max-w-sm p-4 rounded-2xl rounded-tl-xs snap-gradient text-slate-950 font-bold text-sm shadow-md flex items-center gap-3 hover:opacity-95 transition select-none">
+                        <div class="w-8 h-8 rounded-full bg-slate-950/10 flex items-center justify-center">
+                            <i data-lucide="eye" class="w-4 h-4 text-slate-950"></i>
                         </div>
-                        <img id="media-img-${snap.id}" src="${snap.image}" class="hidden max-w-xs sm:max-w-sm rounded-xl border border-neutral-700 object-cover shadow-lg">
+                        <div>
+                            <p class="font-bold">Tap to Reveal Photo</p>
+                            <p class="text-[10px] opacity-80">Deletes 60s after opening</p>
+                        </div>
+                    </div>
+                    
+                    <div id="content-${snap.id}" class="hidden max-w-xs sm:max-w-sm rounded-2xl rounded-tl-xs overflow-hidden border border-slate-700 bg-slate-900 shadow-md">
+                        <img src="${snap.content}" class="w-full h-auto object-cover max-h-60" alt="Snap Image">
                     </div>
                 `;
             }
 
-            let textHtml = '';
-            if (snap.text) {
-                textHtml = `<p class="text-sm text-white break-words">${escapeHtml(snap.text)}</p>`;
-            }
-
-            msgEl.innerHTML = `
-                <div class="flex items-center gap-1.5 text-[10px] text-neutral-400 font-mono">
+            wrapper.innerHTML = `
+                ${contentHtml}
+                <div class="flex items-center gap-1.5 text-[10px] text-slate-400 px-1">
                     <span>Stranger</span> • 
-                    <span id="timer-${snap.id}" class="text-snapyellow font-bold flex items-center gap-1">
-                        <i data-lucide="clock" class="w-3 h-3 inline"></i> ${snap.image ? 'Unopened' : '60s'}
-                    </span>
-                </div>
-                <div class="bg-neutral-800 p-3 rounded-2xl rounded-tl-xs border border-neutral-700/60 shadow-md max-w-sm">
-                    ${mediaHtml}
-                    ${textHtml}
+                    <span id="timer-${snap.id}" class="text-slate-400 font-mono">${snap.type === 'text' ? '60s' : 'Unopened'}</span>
+                    <i data-lucide="clock" class="w-3 h-3 text-slate-400"></i>
                 </div>
             `;
 
-            container.appendChild(msgEl);
+            container.appendChild(wrapper);
             lucide.createIcons();
             scrollToBottom();
 
-            // If there's no image, start timer immediately for text
-            if (!snap.image) {
-                startSnapCountdown(snap.id);
+            // Auto-start 60s countdown for text snaps immediately
+            if (snap.type === 'text') {
+                startSelfDestructTimer(snap.id);
             }
         }
 
-        // Reveal image cover and start the 60-second self-destruct timer
-        function revealMedia(snapId) {
-            const cover = document.getElementById(`media-cover-${snapId}`);
-            const img = document.getElementById(`media-img-${snapId}`);
-            const container = document.getElementById(`media-container-${snapId}`);
-
-            if (cover && img && !cover.classList.contains('hidden')) {
+        function revealSnap(snapId) {
+            const cover = document.getElementById(`cover-${snapId}`);
+            const content = document.getElementById(`content-${snapId}`);
+            if (cover && content) {
                 cover.classList.add('hidden');
-                img.classList.remove('hidden');
-                if (container) container.onclick = null; // Disable re-trigger
-                startSnapCountdown(snapId);
+                content.classList.remove('hidden');
+                startSelfDestructTimer(snapId);
             }
         }
 
-        // 60-Second Timer & Memory Purge
-        function startSnapCountdown(snapId) {
-<!-- ... existing code -->
+        function startSelfDestructTimer(snapId) {
+            let timeLeft = 60;
+            const timerEl = document.getElementById(`timer-${snapId}`);
+
+            const interval = setInterval(() => {
+                timeLeft--;
+                if (timerEl) {
+                    timerEl.innerText = `${timeLeft}s`;
+                    if (timeLeft <= 10) {
+                        timerEl.classList.add('text-red-400', 'font-bold');
+                    }
+                }
+
+                if (timeLeft <= 0) {
+                    clearInterval(interval);
+                    const snapEl = document.getElementById(snapId);
+                    if (snapEl) {
+                        snapEl.style.transition = 'all 0.5s ease-out';
+                        snapEl.style.opacity = '0';
+                        snapEl.style.transform = 'scale(0.9)';
+                        setTimeout(() => snapEl.remove(), 500);
+                    }
+                }
+            }, 1000);
+        }
+
+        // --- Helpers ---
+
+        function copyMyId() {
+            const id = state.myId;
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(id);
+            } else {
+                const el = document.createElement('textarea');
+                el.value = id;
+                document.body.appendChild(el);
+                el.select();
+                document.execCommand('copy');
+                document.body.removeChild(el);
+            }
+            showToast("Stranger ID copied to clipboard!", "info");
+        }
+
+        function scrollToBottom() {
+            const container = document.getElementById('messages-container');
+            container.scrollTop = container.scrollHeight;
+        }
+
+        function escapeHtml(str) {
+            return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
+        }
+
+        function showToast(message, type = "info") {
+            const container = document.getElementById('toast-container');
+            const toast = document.createElement('div');
+            
+            const bgColor = type === "error" ? "bg-red-500/90" : "bg-slate-800/90";
+            toast.className = `${bgColor} backdrop-blur-md text-white text-xs font-semibold px-4 py-2.5 rounded-2xl shadow-xl border border-white/10 transition-all duration-300 transform translate-y-2 opacity-0 pointer-events-auto flex items-center gap-2`;
+            
+            const iconName = type === "error" ? "alert-circle" : "info";
+            toast.innerHTML = `<i data-lucide="${iconName}" class="w-4 h-4"></i> <span>${escapeHtml(message)}</span>`;
+            
+            container.appendChild(toast);
+            lucide.createIcons();
+
+            setTimeout(() => {
+                toast.classList.remove('translate-y-2', 'opacity-0');
+            }, 10);
+
+            setTimeout(() => {
+                toast.classList.add('opacity-0', 'translate-y-2');
+                setTimeout(() => toast.remove(), 300);
+            }, 3000);
+        }
+    </script>
+</body>
+</html>
