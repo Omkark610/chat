@@ -146,10 +146,20 @@
                 <form id="chat-form" onsubmit="handleSendMessage(event)" class="flex items-center gap-2">
                     
                     <!-- File Upload Button -->
-                    <label class="p-3 rounded-2xl bg-slate-800 hover:bg-slate-700 text-slate-300 transition cursor-pointer flex items-center justify-center shrink-0">
+                    <label class="p-3 rounded-2xl bg-slate-800 hover:bg-slate-700 text-slate-300 transition cursor-pointer flex items-center justify-center shrink-0" title="Attach Image Snap">
                         <i data-lucide="image" class="w-5 h-5 text-slate-300"></i>
                         <input type="file" id="image-input" accept="image/*" class="hidden" onchange="sendImageSnap(event)">
                     </label>
+
+                    <!-- Self-Destruct Timer Select Dropdown -->
+                    <div class="relative shrink-0">
+                        <select id="timer-select" class="appearance-none bg-slate-800 hover:bg-slate-700 text-yellow-400 font-semibold text-xs py-3.5 pl-3 pr-7 rounded-2xl border border-slate-700 focus:outline-none focus:border-yellow-500/50 transition cursor-pointer">
+                            <option value="60">60s</option>
+                            <option value="3600">1h</option>
+                            <option value="0">Never</option>
+                        </select>
+                        <i data-lucide="clock" class="w-3.5 h-3.5 text-yellow-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none"></i>
+                    </div>
 
                     <!-- Text Input -->
                     <input type="text" id="message-input" placeholder="Send an encrypted snap..." 
@@ -484,6 +494,22 @@
                     updateSnapStatusUI(data.snapId, data.status);
                 }
             });
+        }
+
+        function updateSnapStatusUI(snapId, status) {
+            const statusEl = document.getElementById(`status-${snapId}`);
+            if (!statusEl) return;
+
+            if (status === 'delivered') {
+                statusEl.className = "flex items-center gap-0.5 text-slate-400 font-medium";
+                statusEl.innerHTML = `<i data-lucide="check-check" class="w-3.5 h-3.5 text-slate-400"></i> Delivered`;
+            } else if (status === 'read') {
+                statusEl.className = "flex items-center gap-0.5 text-sky-400 font-medium";
+                statusEl.innerHTML = `<i data-lucide="check-check" class="w-3.5 h-3.5 text-sky-400"></i> Read`;
+            }
+            lucide.createIcons();
+        }
+
         function connectToPeer() {
             const targetId = document.getElementById('target-peer-id').value.trim();
             if (!targetId) {
@@ -520,6 +546,8 @@
         async function handleSendMessage(e) {
             e.preventDefault();
             const input = document.getElementById('message-input');
+            const timerSelect = document.getElementById('timer-select');
+            const duration = parseInt(timerSelect.value, 10);
             const text = input.value.trim();
             if (!text) return;
 
@@ -532,6 +560,7 @@
                 id: 'snap-' + Date.now() + '-' + Math.random().toString(36).substr(2, 5),
                 type: 'text',
                 content: text,
+                ttl: duration,
                 timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
             };
 
@@ -554,6 +583,9 @@
                 return;
             }
 
+            const timerSelect = document.getElementById('timer-select');
+            const duration = parseInt(timerSelect.value, 10);
+
             const reader = new FileReader();
             reader.onload = async (e) => {
                 const base64Data = e.target.result;
@@ -561,6 +593,7 @@
                     id: 'snap-' + Date.now() + '-' + Math.random().toString(36).substr(2, 5),
                     type: 'image',
                     content: base64Data,
+                    ttl: duration,
                     timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
                 };
 
@@ -578,11 +611,20 @@
 
         // --- Snap UI Rendering & Self-Destruct Timers ---
 
+        function formatTTLDisplay(ttl) {
+            if (!ttl || ttl === 0) return 'Never';
+            if (ttl < 60) return `${ttl}s`;
+            if (ttl < 3600) return `${Math.floor(ttl / 60)}m`;
+            return `${Math.floor(ttl / 3600)}h`;
+        }
+
         function renderOutgoingSnap(snap) {
             const container = document.getElementById('messages-container');
             const wrapper = document.createElement('div');
             wrapper.className = "flex flex-col items-end space-y-1 mb-4";
             wrapper.id = snap.id;
+
+            const initialTimerText = formatTTLDisplay(snap.ttl);
 
             let contentHtml = '';
             if (snap.type === 'text') {
@@ -605,7 +647,7 @@
                     <span id="status-${snap.id}" class="flex items-center gap-0.5 text-slate-400 font-medium">
                         <i data-lucide="check" class="w-3 h-3 text-slate-400"></i> Sent
                     </span> • 
-                    <span id="timer-${snap.id}" class="text-yellow-400 font-mono">60s</span>
+                    <span id="timer-${snap.id}" class="text-yellow-400 font-mono">${initialTimerText}</span>
                     <i data-lucide="clock" class="w-3 h-3 text-yellow-400"></i>
                 </div>
             `;
@@ -613,7 +655,7 @@
             container.appendChild(wrapper);
             lucide.createIcons();
             scrollToBottom();
-            startSelfDestructTimer(snap.id);
+            startSelfDestructTimer(snap.id, snap.ttl);
         }
 
         function renderIncomingSnap(snap) {
@@ -622,28 +664,27 @@
             wrapper.className = "flex flex-col items-start space-y-1 mb-4";
             wrapper.id = snap.id;
 
+            const initialTimerText = formatTTLDisplay(snap.ttl);
+
             let contentHtml = '';
             if (snap.type === 'text') {
-                // Text shows immediately and automatically sends back READ receipt
                 contentHtml = `
                     <div class="max-w-xs sm:max-w-md p-3.5 rounded-2xl rounded-tl-xs bg-slate-800 text-slate-100 text-sm font-medium border border-slate-700/60 shadow-md">
                         <p class="break-words">${escapeHtml(snap.content)}</p>
                     </div>
                 `;
-                // Notify sender that message is read
                 if (state.conn && state.conn.open) {
                     state.conn.send({ type: 'STATUS_UPDATE', snapId: snap.id, status: 'read' });
                 }
             } else {
-                // Image snap has tap to reveal cover
                 contentHtml = `
-                    <div id="cover-${snap.id}" onclick="revealSnap('${snap.id}')" class="cursor-pointer max-w-xs sm:max-w-sm p-4 rounded-2xl rounded-tl-xs snap-gradient text-slate-950 font-bold text-sm shadow-md flex items-center gap-3 hover:opacity-95 transition select-none">
+                    <div id="cover-${snap.id}" onclick="revealSnap('${snap.id}', ${snap.ttl || 60})" class="cursor-pointer max-w-xs sm:max-w-sm p-4 rounded-2xl rounded-tl-xs snap-gradient text-slate-950 font-bold text-sm shadow-md flex items-center gap-3 hover:opacity-95 transition select-none">
                         <div class="w-8 h-8 rounded-full bg-slate-950/10 flex items-center justify-center">
                             <i data-lucide="eye" class="w-4 h-4 text-slate-950"></i>
                         </div>
                         <div>
                             <p class="font-bold">Tap to Reveal Photo</p>
-                            <p class="text-[10px] opacity-80">Deletes 60s after opening</p>
+                            <p class="text-[10px] opacity-80">Timer: ${initialTimerText}</p>
                         </div>
                     </div>
                     
@@ -657,7 +698,7 @@
                 ${contentHtml}
                 <div class="flex items-center gap-1.5 text-[10px] text-slate-400 px-1">
                     <span>Stranger</span> • 
-                    <span id="timer-${snap.id}" class="text-slate-400 font-mono">${snap.type === 'text' ? '60s' : 'Unopened'}</span>
+                    <span id="timer-${snap.id}" class="text-slate-400 font-mono">${snap.type === 'text' ? initialTimerText : 'Unopened'}</span>
                     <i data-lucide="clock" class="w-3 h-3 text-slate-400"></i>
                 </div>
             `;
@@ -666,112 +707,41 @@
             lucide.createIcons();
             scrollToBottom();
 
-            // Auto-start 60s countdown for text snaps immediately
             if (snap.type === 'text') {
-                startSelfDestructTimer(snap.id);
+                startSelfDestructTimer(snap.id, snap.ttl);
             }
         }
 
-        function revealSnap(snapId) {
+        function revealSnap(snapId, ttl) {
             const cover = document.getElementById(`cover-${snapId}`);
             const content = document.getElementById(`content-${snapId}`);
             if (cover && content) {
                 cover.classList.add('hidden');
                 content.classList.remove('hidden');
 
-                // Notify sender that image snap has been read/opened
                 if (state.conn && state.conn.open) {
                     state.conn.send({ type: 'STATUS_UPDATE', snapId: snapId, status: 'read' });
                 }
 
-                startSelfDestructTimer(snapId);
+                startSelfDestructTimer(snapId, ttl);
             }
         }
 
-        function updateSnapStatusUI(snapId, status) {
-            const statusEl = document.getElementById(`status-${snapId}`);
-            if (!statusEl) return;
-
-            if (status === 'delivered') {
-                statusEl.className = "flex items-center gap-0.5 text-slate-400 font-medium";
-                statusEl.innerHTML = `<i data-lucide="check-check" class="w-3.5 h-3.5 text-slate-400"></i> Delivered`;
-            } else if (status === 'read') {
-                statusEl.className = "flex items-center gap-0.5 text-sky-400 font-medium";
-                statusEl.innerHTML = `<i data-lucide="check-check" class="w-3.5 h-3.5 text-sky-400"></i> Read`;
-            }
-            lucide.createIcons();
-        }
-
-        function renderIncomingSnap(snap) {
-            const container = document.getElementById('messages-container');
-            const wrapper = document.createElement('div');
-            wrapper.className = "flex flex-col items-start space-y-1 mb-4";
-            wrapper.id = snap.id;
-
-            let contentHtml = '';
-            if (snap.type === 'text') {
-                // Text shows immediately
-                contentHtml = `
-                    <div class="max-w-xs sm:max-w-md p-3.5 rounded-2xl rounded-tl-xs bg-slate-800 text-slate-100 text-sm font-medium border border-slate-700/60 shadow-md">
-                        <p class="break-words">${escapeHtml(snap.content)}</p>
-                    </div>
-                `;
-            } else {
-                // Image snap has tap to reveal cover
-                contentHtml = `
-                    <div id="cover-${snap.id}" onclick="revealSnap('${snap.id}')" class="cursor-pointer max-w-xs sm:max-w-sm p-4 rounded-2xl rounded-tl-xs snap-gradient text-slate-950 font-bold text-sm shadow-md flex items-center gap-3 hover:opacity-95 transition select-none">
-                        <div class="w-8 h-8 rounded-full bg-slate-950/10 flex items-center justify-center">
-                            <i data-lucide="eye" class="w-4 h-4 text-slate-950"></i>
-                        </div>
-                        <div>
-                            <p class="font-bold">Tap to Reveal Photo</p>
-                            <p class="text-[10px] opacity-80">Deletes 60s after opening</p>
-                        </div>
-                    </div>
-                    
-                    <div id="content-${snap.id}" class="hidden max-w-xs sm:max-w-sm rounded-2xl rounded-tl-xs overflow-hidden border border-slate-700 bg-slate-900 shadow-md">
-                        <img src="${snap.content}" class="w-full h-auto object-cover max-h-60" alt="Snap Image">
-                    </div>
-                `;
+        function startSelfDestructTimer(snapId, ttl) {
+            // "Never" selected (0 seconds)
+            if (ttl === 0) {
+                const timerEl = document.getElementById(`timer-${snapId}`);
+                if (timerEl) timerEl.innerText = 'Never';
+                return;
             }
 
-            wrapper.innerHTML = `
-                ${contentHtml}
-                <div class="flex items-center gap-1.5 text-[10px] text-slate-400 px-1">
-                    <span>Stranger</span> • 
-                    <span id="timer-${snap.id}" class="text-slate-400 font-mono">${snap.type === 'text' ? '60s' : 'Unopened'}</span>
-                    <i data-lucide="clock" class="w-3 h-3 text-slate-400"></i>
-                </div>
-            `;
-
-            container.appendChild(wrapper);
-            lucide.createIcons();
-            scrollToBottom();
-
-            // Auto-start 60s countdown for text snaps immediately
-            if (snap.type === 'text') {
-                startSelfDestructTimer(snap.id);
-            }
-        }
-
-        function revealSnap(snapId) {
-            const cover = document.getElementById(`cover-${snapId}`);
-            const content = document.getElementById(`content-${snapId}`);
-            if (cover && content) {
-                cover.classList.add('hidden');
-                content.classList.remove('hidden');
-                startSelfDestructTimer(snapId);
-            }
-        }
-
-        function startSelfDestructTimer(snapId) {
-            let timeLeft = 60;
+            let timeLeft = (typeof ttl === 'number') ? ttl : 60;
             const timerEl = document.getElementById(`timer-${snapId}`);
 
             const interval = setInterval(() => {
                 timeLeft--;
                 if (timerEl) {
-                    timerEl.innerText = `${timeLeft}s`;
+                    timerEl.innerText = formatTTLDisplay(timeLeft);
                     if (timeLeft <= 10) {
                         timerEl.classList.add('text-red-400', 'font-bold');
                     }
